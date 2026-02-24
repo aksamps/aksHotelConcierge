@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # MySQL Database Service
+  mysql-db:
+    image: mysql:8.0
+    container_name: hotel-concierge-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: hotel_concierge
+      MYSQL_USER: hotel_user
+      MYSQL_PASSWORD: hotel_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # init.sql is not used because Python app creates tables dynamically
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - hotel-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+
+  # Python Flask API Service
+  python-app:
+    build:
+      context: ./python_app
+      dockerfile: Dockerfile
+    container_name: hotel-concierge-python
+    environment:
+      MYSQL_HOST: mysql-db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: password
+      MYSQL_DB: hotel_concierge
+      FLASK_ENV: production
+    ports:
+      - "5000:5000"
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    networks:
+      - hotel-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      timeout: 20s
+      retries: 5
+      interval: 10s
+
+  # Node.js WebSocket Server Service
+  nodejs-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hotel-concierge-nodejs
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      PYTHON_API: http://python-app:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - python-app
+    networks:
+      - hotel-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      timeout: 20s
+      retries: 5
+      interval: 10s
+
+networks:
+  hotel-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
