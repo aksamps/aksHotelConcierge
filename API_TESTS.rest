@@ -1,0 +1,143 @@
+### Hotel Concierge API Test Collection
+### Use with REST Client extension or similar tools
+
+@api_host = http://localhost:3000
+@python_api = http://localhost:5000
+
+### ==================== HEALTH CHECKS ====================
+
+### Node.js Server Health
+GET @api_host/health
+
+### Python API Health
+GET @python_api/health
+
+### ==================== ROOM ENDPOINTS ====================
+
+### Get All Rooms
+GET @api_host/api/rooms
+
+### Get Single Room (Room ID 1)
+GET @api_host/api/rooms/1
+
+### Get Status Summary
+GET @api_host/api/rooms/status/summary
+
+### Create New Room
+POST @api_host/api/rooms
+Content-Type: application/json
+
+{
+  "id": 13,
+  "room_number": "305",
+  "floor": 3,
+  "status": "vacant",
+  "guest_name": null
+}
+
+### Update Room Status (Mark as Occupied)
+PUT @api_host/api/rooms/1/status
+Content-Type: application/json
+
+{
+  "status": "occupied"
+}
+
+### Update Room Status (Mark as Vacant)
+PUT @api_host/api/rooms/1/status
+Content-Type: application/json
+
+{
+  "status": "vacant"
+}
+
+### Update Room Status (Mark as Maintenance)
+PUT @api_host/api/rooms/1/status
+Content-Type: application/json
+
+{
+  "status": "maintenance"
+}
+
+### Check In Guest (Room 1)
+POST @api_host/api/rooms/1/checkin
+Content-Type: application/json
+
+{
+  "guest_name": "Alice Johnson"
+}
+
+### Check In Guest (Room 2)
+POST @api_host/api/rooms/2/checkin
+Content-Type: application/json
+
+{
+  "guest_name": "Bob Smith"
+}
+
+### Check Out Guest (Room 1)
+POST @api_host/api/rooms/1/checkout
+
+### Check Out Guest (Room 2)
+POST @api_host/api/rooms/2/checkout
+
+### ==================== PYTHON API ENDPOINTS ====================
+
+### Get All Rooms (Python API)
+GET @python_api/api/rooms
+
+### Get Single Room (Python API)
+GET @python_api/api/rooms/1
+
+### Create Room (Python API)
+POST @python_api/api/rooms
+Content-Type: application/json
+
+{
+  "id": 14,
+  "room_number": "306",
+  "floor": 3,
+  "status": "vacant"
+}
+
+### Update Room Status (Python API)
+PUT @python_api/api/rooms/1/status
+Content-Type: application/json
+
+{
+  "status": "occupied"
+}
+
+### Check In Guest (Python API)
+POST @python_api/api/rooms/1/checkin
+Content-Type: application/json
+
+{
+  "guest_name": "Charlie Brown"
+}
+
+### Check Out Guest (Python API)
+POST @python_api/api/rooms/1/checkout
+
+### Get Status Summary (Python API)
+GET @python_api/api/rooms/status/summary
+
+### ==================== NOTES ====================
+
+# All endpoints return JSON responses with the following structure:
+# {
+#   "success": true,
+#   "message": "...",
+#   "data": {...},
+#   "timestamp": "2024-02-24T10:30:00Z"
+# }
+
+# Valid room statuses:
+# - occupied: Room has an active guest
+# - vacant: Room is available
+# - maintenance: Room is under maintenance
+
+# WebSocket Connection:
+# ws://localhost:3000 (WebSocket server for real-time updates)
+
+# Sample room numbers: 101, 102, 103, 104, 201, 202, 203, 204, 301, 302, 303, 304
