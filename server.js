@@ -82,6 +82,101 @@ app.get('/api/rooms/:id', async (req, res) => {
     }
 });
 
+// Get room availability for date range
+app.get('/api/rooms/availability', async (req, res) => {
+    try {
+        const checkIn = req.query.check_in;
+        const checkOut = req.query.check_out;
+        
+        if (!checkIn || !checkOut) {
+            return res.status(400).json({ error: 'check_in and check_out dates required' });
+        }
+        
+        const response = await axios.get(
+            `${PYTHON_API}/api/rooms/availability?check_in=${checkIn}&check_out=${checkOut}`
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error fetching availability:', error.message);
+        res.status(500).json({ error: 'Failed to fetch availability' });
+    }
+});
+
+// ==================== RESERVATION ENDPOINTS ====================
+
+// Get all reservations
+app.get('/api/reservations', async (req, res) => {
+    try {
+        const response = await axios.get(`${PYTHON_API}/api/reservations`);
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error fetching reservations:', error.message);
+        res.status(500).json({ error: 'Failed to fetch reservations' });
+    }
+});
+
+// Create new reservation
+app.post('/api/reservations', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/api/reservations`, req.body);
+        
+        // Broadcast reservation creation to all clients
+        broadcastToClients({
+            type: 'reservation_created',
+            reservation: response.data,
+            timestamp: new Date().toISOString()
+        });
+        
+        res.status(201).json(response.data);
+    } catch (error) {
+        console.error('Error creating reservation:', error.message);
+        res.status(error.response?.status || 500).json({ 
+            error: error.response?.data?.error || 'Failed to create reservation' 
+        });
+    }
+});
+
+// Get specific reservation
+app.get('/api/reservations/:id', async (req, res) => {
+    try {
+        const response = await axios.get(`${PYTHON_API}/api/reservations/${req.params.id}`);
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error fetching reservation:', error.message);
+        res.status(500).json({ error: 'Failed to fetch reservation' });
+    }
+});
+
+// Cancel reservation
+app.post('/api/reservations/:id/cancel', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/api/reservations/${req.params.id}/cancel`);
+        
+        // Broadcast cancellation to all clients
+        broadcastToClients({
+            type: 'reservation_cancelled',
+            reservation_id: req.params.id,
+            timestamp: new Date().toISOString()
+        });
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error cancelling reservation:', error.message);
+        res.status(500).json({ error: 'Failed to cancel reservation' });
+    }
+});
+
+// Get room reservations
+app.get('/api/reservations/room/:room_id', async (req, res) => {
+    try {
+        const response = await axios.get(`${PYTHON_API}/api/reservations/room/${req.params.room_id}`);
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error fetching room reservations:', error.message);
+        res.status(500).json({ error: 'Failed to fetch room reservations' });
+    }
+});
+
 // Update room status
 app.put('/api/rooms/:id/status', async (req, res) => {
     try {

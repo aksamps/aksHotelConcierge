@@ -446,10 +446,68 @@
             </div>
         </div>
 
+        <!-- Date Range Selector for Availability -->
+        <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+            <h3 style="margin-bottom: 15px; color: #333;">Check Room Availability</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; align-items: flex-end;">
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: 600;">Check-In Date</label>
+                    <input type="date" id="searchCheckIn" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: 600;">Check-Out Date</label>
+                    <input type="date" id="searchCheckOut" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                </div>
+                <button id="searchBtn" style="background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">Search</button>
+            </div>
+        </div>
+
         <div class="rooms-grid" id="roomsContainer">
             <div class="loading">
                 <div class="spinner"></div>
                 <p>Loading rooms...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reservation Modal -->
+    <div id="reservationModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('reservationModal')">&times;</span>
+            <div class="modal-header">Book Room</div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Room Number:</label>
+                    <input type="text" id="reservationRoomNumber" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Guest Name:</label>
+                    <input type="text" id="reservationGuestName" placeholder="Enter your name">
+                </div>
+                <div class="form-group">
+                    <label>Guest Email:</label>
+                    <input type="email" id="reservationGuestEmail" placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label>Check-In Date:</label>
+                    <input type="date" id="reservationCheckIn">
+                </div>
+                <div class="form-group">
+                    <label>Check-Out Date:</label>
+                    <input type="date" id="reservationCheckOut">
+                </div>
+                <div class="form-group">
+                    <label>Number of Guests:</label>
+                    <input type="number" id="reservationGuests" value="1" min="1" max="4">
+                </div>
+                <div class="form-group">
+                    <label>Special Requests (Optional):</label>
+                    <textarea id="reservationRequests" placeholder="Any special requests?" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; min-height: 80px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('reservationModal')">Cancel</button>
+                <button class="btn-primary" onclick="confirmReservation()">Book Room</button>
             </div>
         </div>
     </div>
@@ -480,6 +538,9 @@
         let ws = null;
         let currentRoomData = {};
         let currentRoomForCheckin = null;
+        let currentRoomForReservation = null;
+        let currentCheckInDate = null;
+        let currentCheckOutDate = null;
         const API_BASE = window.location.origin;
 
         // Initialize WebSocket connection
@@ -502,6 +563,10 @@
                     
                     if (data.type === 'room_status_update') {
                         handleRoomStatusUpdate(data);
+                    } else if (data.type === 'reservation_created') {
+                        handleReservationCreated(data.reservation);
+                    } else if (data.type === 'reservation_cancelled') {
+                        handleReservationCancelled(data.reservation);
                     }
                 } catch (error) {
                     console.error('Error parsing WebSocket message:', error);
@@ -584,6 +649,11 @@
             const statusClass = `status-${room.status}`;
             const statusBadge = `<span class="status-badge ${statusClass}">${room.status}</span>`;
             
+            // Check availability status (only if we're showing filtered results)
+            const availabilityBadge = room.availability ? 
+                `<span class="status-badge" style="background: ${room.availability === 'available' ? '#51cf66' : '#ff6b6b'}; margin-left: 5px;">${room.availability}</span>` 
+                : '';
+            
             let guestInfo = '';
             if (room.guest_name) {
                 guestInfo = `<div class="room-details">
@@ -601,6 +671,23 @@
                 </div>`;
             }
             
+            // Show appropriate buttons based on availability
+            let actionButtons = '';
+            if (currentCheckInDate && currentCheckOutDate) {
+                // When searching with dates
+                if (room.availability === 'available') {
+                    actionButtons = `<button class="btn-checkin" onclick="openReservationModal(${room.id}, '${room.room_number}')">Book Now</button>`;
+                } else {
+                    actionButtons = `<button style="background: #999; cursor: not-allowed; padding: 10px 15px; border: none; border-radius: 5px; color: white; font-weight: 600; font-size: 0.85em;">Not Available</button>`;
+                }
+            } else {
+                // Default view
+                actionButtons = `
+                    <button class="btn-checkin" onclick="openReservationModal(${room.id}, '${room.room_number}')">Reserve</button>
+                    <button class="btn-checkout" onclick="checkOutRoom(${room.id})">Check Out</button>
+                `;
+            }
+            
             return `
                 <div class="room-card">
                     <div class="room-header">
@@ -608,12 +695,11 @@
                         <div class="room-floor">Floor ${room.floor}</div>
                     </div>
                     <div class="room-body">
-                        ${statusBadge}
+                        ${statusBadge}${availabilityBadge}
                         ${guestInfo}
                         ${checkInTime}
                         <div class="room-actions">
-                            <button class="btn-checkin" onclick="openCheckinModal(${room.id}, '${room.room_number}')">Check In</button>
-                            <button class="btn-checkout" onclick="checkOutRoom(${room.id})">Check Out</button>
+                            ${actionButtons}
                         </div>
                     </div>
                 </div>
@@ -733,14 +819,168 @@
 
         // Close modal when clicking outside
         window.onclick = (event) => {
-            const modal = document.getElementById('checkinModal');
-            if (event.target === modal) {
-                modal.style.display = 'none';
-            }
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
         };
 
+        // Search for available rooms
+        async function searchAvailability() {
+            const checkIn = document.getElementById('searchCheckIn').value;
+            const checkOut = document.getElementById('searchCheckOut').value;
+            
+            if (!checkIn || !checkOut) {
+                showNotification('Please select both check-in and check-out dates', 'error');
+                return;
+            }
+            
+            if (new Date(checkIn) >= new Date(checkOut)) {
+                showNotification('Check-out date must be after check-in date', 'error');
+                return;
+            }
+            
+            try {
+                currentCheckInDate = checkIn;
+                currentCheckOutDate = checkOut;
+                
+                const response = await fetch(
+                    `${API_BASE}/api/rooms/availability?check_in=${checkIn}&check_out=${checkOut}`
+                );
+                
+                if (!response.ok) throw new Error('Failed to search');
+                
+                const data = await response.json();
+                currentRoomData = {};
+                
+                if (data.rooms && Array.isArray(data.rooms)) {
+                    data.rooms.forEach(room => {
+                        currentRoomData[room.id] = room;
+                    });
+                }
+                
+                renderRooms();
+                showNotification(`Found ${data.rooms.length} rooms`, 'success');
+            } catch (error) {
+                console.error('Error searching availability:', error);
+                showNotification('Failed to search availability', 'error');
+            }
+        }
+
+        // Open reservation modal
+        function openReservationModal(roomId, roomNumber) {
+            currentRoomForReservation = roomId;
+            document.getElementById('reservationRoomNumber').value = roomNumber;
+            document.getElementById('reservationGuestName').value = '';
+            document.getElementById('reservationGuestEmail').value = '';
+            document.getElementById('reservationGuests').value = '1';
+            document.getElementById('reservationRequests').value = '';
+            
+            // Set dates from search
+            if (currentCheckInDate) {
+                document.getElementById('reservationCheckIn').value = currentCheckInDate;
+            }
+            if (currentCheckOutDate) {
+                document.getElementById('reservationCheckOut').value = currentCheckOutDate;
+            }
+            
+            document.getElementById('reservationModal').style.display = 'block';
+            document.getElementById('reservationGuestName').focus();
+        }
+
+        // Confirm reservation
+        async function confirmReservation() {
+            const guestName = document.getElementById('reservationGuestName').value.trim();
+            const guestEmail = document.getElementById('reservationGuestEmail').value.trim();
+            const checkIn = document.getElementById('reservationCheckIn').value;
+            const checkOut = document.getElementById('reservationCheckOut').value;
+            const numGuests = document.getElementById('reservationGuests').value;
+            const specialRequests = document.getElementById('reservationRequests').value;
+            
+            if (!guestName) {
+                showNotification('Please enter guest name', 'error');
+                return;
+            }
+            
+            if (!checkIn || !checkOut) {
+                showNotification('Please select dates', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/reservations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        room_id: currentRoomForReservation,
+                        guest_name: guestName,
+                        guest_email: guestEmail,
+                        check_in_date: checkIn,
+                        check_out_date: checkOut,
+                        number_of_guests: parseInt(numGuests),
+                        special_requests: specialRequests
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Reservation failed');
+                }
+                
+                const result = await response.json();
+                closeModal('reservationModal');
+                showNotification(`Reservation confirmed for ${guestName}!`, 'success');
+                
+                // Refresh availability
+                searchAvailability();
+            } catch (error) {
+                console.error('Reservation error:', error);
+                showNotification(error.message || 'Failed to create reservation', 'error');
+            }
+        }
+
+        // Handle real-time reservation created event
+        function handleReservationCreated(reservation) {
+            showNotification(
+                `New reservation created for ${reservation.guest_name} in Room ${reservation.room_id}`,
+                'success'
+            );
+            
+            // Update room availability if search is active
+            if (currentCheckInDate && currentCheckOutDate) {
+                searchAvailability();
+            }
+        }
+
+        // Handle real-time reservation cancelled event
+        function handleReservationCancelled(reservation) {
+            showNotification(
+                `Reservation cancelled for Room ${reservation.room_id}`,
+                'info'
+            );
+            
+            // Update room availability if search is active
+            if (currentCheckInDate && currentCheckOutDate) {
+                searchAvailability();
+            }
+        }
+
         // Initialize on page load
-        document.addEventListener('DOMContentLoaded', initWebSocket);
+        document.addEventListener('DOMContentLoaded', () => {
+            initWebSocket();
+            
+            // Set minimum dates
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('searchCheckIn').min = today;
+            document.getElementById('searchCheckOut').min = today;
+            document.getElementById('reservationCheckIn').min = today;
+            document.getElementById('reservationCheckOut').min = today;
+            
+            // Search button event listener
+            document.getElementById('searchBtn').addEventListener('click', searchAvailability);
+        });
     </script>
 </body>
 </html>

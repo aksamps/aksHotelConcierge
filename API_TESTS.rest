@@ -122,6 +122,42 @@ POST @python_api/api/rooms/1/checkout
 ### Get Status Summary (Python API)
 GET @python_api/api/rooms/status/summary
 
+### ==================== RESERVATION ENDPOINTS ====================
+
+### Check Room Availability
+GET @api_host/api/rooms/availability?check_in=2024-03-01&check_out=2024-03-05
+
+### Create New Reservation
+POST @api_host/api/reservations
+Content-Type: application/json
+
+{
+  "room_id": 1,
+  "guest_name": "Sarah Connor",
+  "guest_email": "sarah@example.com",
+  "check_in_date": "2024-03-10",
+  "check_out_date": "2024-03-15",
+  "number_of_guests": 2,
+  "special_requests": "Pool view preferred"
+}
+
+### Get All Reservations
+GET @api_host/api/reservations
+
+### Get Specific Reservation (ID 1)
+GET @api_host/api/reservations/1
+
+### Get Reservations for Room 1
+GET @api_host/api/reservations/room/1
+
+### Cancel Reservation (ID 1)
+POST @api_host/api/reservations/1/cancel
+Content-Type: application/json
+
+{
+  "cancellation_reason": "Guest requested cancellation"
+}
+
 ### ==================== NOTES ====================
 
 # All endpoints return JSON responses with the following structure:
@@ -137,7 +173,11 @@ GET @python_api/api/rooms/status/summary
 # - vacant: Room is available
 # - maintenance: Room is under maintenance
 
+# Reservation statuses:
+# - confirmed: Active reservation
+# - cancelled: Cancelled reservation
+# - completed: Past reservation
+
 # WebSocket Connection:
 # ws://localhost:3000 (WebSocket server for real-time updates)
-
-# Sample room numbers: 101, 102, 103, 104, 201, 202, 203, 204, 301, 302, 303, 304
+# Broadcasts: room_status_update, reservation_created, reservation_cancelled

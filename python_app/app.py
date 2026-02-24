@@ -48,6 +48,26 @@ def init_db():
             )
         ''')
         
+        # Create reservations table for date-based bookings
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reservations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                room_id INT NOT NULL,
+                guest_name VARCHAR(100) NOT NULL,
+                guest_email VARCHAR(100),
+                check_in_date DATE NOT NULL,
+                check_out_date DATE NOT NULL,
+                number_of_guests INT DEFAULT 1,
+                special_requests TEXT,
+                status ENUM('confirmed', 'cancelled', 'completed') DEFAULT 'confirmed',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (room_id) REFERENCES rooms(id),
+                INDEX idx_room_dates (room_id, check_in_date, check_out_date),
+                INDEX idx_dates (check_in_date, check_out_date)
+            )
+        ''')
+        
         # Create room_status_logs table for tracking changes
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS room_status_logs (
@@ -58,6 +78,18 @@ def init_db():
                 changed_by VARCHAR(100),
                 changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (room_id) REFERENCES rooms(id)
+            )
+        ''')
+        
+        # Create reservation_logs table for audit trail
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reservation_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                reservation_id INT NOT NULL,
+                action VARCHAR(50) NOT NULL,
+                changed_by VARCHAR(100),
+                changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (reservation_id) REFERENCES reservations(id)
             )
         ''')
         
@@ -301,6 +333,242 @@ def get_status_summary():
         }), 200
     except Exception as e:
         logger.error(f"Error fetching status summary: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# ==================== RESERVATION ENDPOINTS ====================
+
+@app.route('/api/reservations', methods=['GET'])
+def get_reservations():
+    """Get all reservations"""
+    try:
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('''
+            SELECT r.*, rm.room_number, rm.floor 
+            FROM reservations r
+            JOIN rooms rm ON r.room_id = rm.id
+            WHERE r.status = 'confirmed'
+            ORDER BY r.check_in_date
+        ''')
+        reservations = cursor.fetchall()
+        cursor.close()
+        
+        logger.info(f"Retrieved {len(reservations)} reservations")
+        return jsonify({
+            'success': True,
+            'reservations': reservations,
+            'count': len(reservations),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching reservations: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/rooms/availability', methods=['GET'])
+def get_room_availability():
+    """Get available rooms for a specific date range"""
+    try:
+        check_in = request.args.get('check_in')
+        check_out = request.args.get('check_out')
+        
+        if not check_in or not check_out:
+            return jsonify({'error': 'check_in and check_out dates required'}), 400
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        
+        # Get all rooms with their reservation status
+        cursor.execute('''
+            SELECT r.*,
+                   COUNT(res.id) as has_reservation,
+                   CASE WHEN COUNT(res.id) > 0 THEN 'reserved' ELSE 'available' END as availability
+            FROM rooms r
+            LEFT JOIN reservations res ON r.id = res.room_id 
+                AND res.status = 'confirmed'
+                AND res.check_in_date < %s 
+                AND res.check_out_date > %s
+            GROUP BY r.id
+            ORDER BY r.floor, r.room_number
+        ''', (check_out, check_in))
+        
+        rooms = cursor.fetchall()
+        cursor.close()
+        
+        logger.info(f"Retrieved availability for {check_in} to {check_out}")
+        return jsonify({
+            'success': True,
+            'check_in_date': check_in,
+            'check_out_date': check_out,
+            'rooms': rooms,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching availability: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reservations', methods=['POST'])
+def create_reservation():
+    """Create a new reservation for a room"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['room_id', 'guest_name', 'check_in_date', 'check_out_date']
+        if not all(field in data for field in required_fields):
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        room_id = data['room_id']
+        guest_name = data['guest_name']
+        check_in = data['check_in_date']
+        check_out = data['check_out_date']
+        guest_email = data.get('guest_email', '')
+        num_guests = data.get('number_of_guests', 1)
+        special_requests = data.get('special_requests', '')
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        
+        # Check if room exists
+        cursor.execute('SELECT id FROM rooms WHERE id = %s', (room_id,))
+        if not cursor.fetchone():
+            return jsonify({'error': 'Room not found'}), 404
+        
+        # Check for conflicting reservations
+        cursor.execute('''
+            SELECT id FROM reservations 
+            WHERE room_id = %s 
+            AND status = 'confirmed'
+            AND check_in_date < %s 
+            AND check_out_date > %s
+        ''', (room_id, check_out, check_in))
+        
+        if cursor.fetchone():
+            return jsonify({'error': 'Room is not available for these dates'}), 409
+        
+        # Create reservation
+        cursor.execute('''
+            INSERT INTO reservations 
+            (room_id, guest_name, guest_email, check_in_date, check_out_date, 
+             number_of_guests, special_requests, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'confirmed')
+        ''', (room_id, guest_name, guest_email, check_in, check_out, num_guests, special_requests))
+        
+        reservation_id = cursor.lastrowid
+        
+        # Log the reservation
+        cursor.execute('''
+            INSERT INTO reservation_logs (reservation_id, action, changed_by)
+            VALUES (%s, 'created', %s)
+        ''', (reservation_id, guest_name))
+        
+        mysql.connection.commit()
+        cursor.close()
+        
+        logger.info(f"Created reservation {reservation_id} for guest {guest_name}")
+        return jsonify({
+            'success': True,
+            'message': 'Reservation created successfully',
+            'reservation_id': reservation_id,
+            'room_id': room_id,
+            'guest_name': guest_name,
+            'check_in_date': check_in,
+            'check_out_date': check_out,
+            'timestamp': datetime.now().isoformat()
+        }), 201
+    except Exception as e:
+        logger.error(f"Error creating reservation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reservations/<int:reservation_id>', methods=['GET'])
+def get_reservation(reservation_id):
+    """Get specific reservation"""
+    try:
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('''
+            SELECT r.*, rm.room_number, rm.floor 
+            FROM reservations r
+            JOIN rooms rm ON r.room_id = rm.id
+            WHERE r.id = %s
+        ''', (reservation_id,))
+        reservation = cursor.fetchone()
+        cursor.close()
+        
+        if not reservation:
+            return jsonify({'error': 'Reservation not found'}), 404
+        
+        logger.info(f"Retrieved reservation {reservation_id}")
+        return jsonify({
+            'success': True,
+            'reservation': reservation,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching reservation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reservations/<int:reservation_id>/cancel', methods=['POST'])
+def cancel_reservation(reservation_id):
+    """Cancel a reservation"""
+    try:
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        
+        # Get reservation
+        cursor.execute('SELECT * FROM reservations WHERE id = %s', (reservation_id,))
+        reservation = cursor.fetchone()
+        
+        if not reservation:
+            return jsonify({'error': 'Reservation not found'}), 404
+        
+        if reservation['status'] != 'confirmed':
+            return jsonify({'error': 'Only confirmed reservations can be cancelled'}), 400
+        
+        # Cancel reservation
+        cursor.execute('''
+            UPDATE reservations 
+            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        ''', (reservation_id,))
+        
+        # Log the cancellation
+        cursor.execute('''
+            INSERT INTO reservation_logs (reservation_id, action, changed_by)
+            VALUES (%s, 'cancelled', %s)
+        ''', (reservation_id, 'system'))
+        
+        mysql.connection.commit()
+        cursor.close()
+        
+        logger.info(f"Cancelled reservation {reservation_id}")
+        return jsonify({
+            'success': True,
+            'message': 'Reservation cancelled successfully',
+            'reservation_id': reservation_id,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error cancelling reservation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reservations/room/<int:room_id>', methods=['GET'])
+def get_room_reservations(room_id):
+    """Get all reservations for a specific room"""
+    try:
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('''
+            SELECT * FROM reservations 
+            WHERE room_id = %s AND status = 'confirmed'
+            ORDER BY check_in_date
+        ''', (room_id,))
+        reservations = cursor.fetchall()
+        cursor.close()
+        
+        logger.info(f"Retrieved reservations for room {room_id}")
+        return jsonify({
+            'success': True,
+            'room_id': room_id,
+            'reservations': reservations,
+            'count': len(reservations),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching room reservations: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 # ==================== HEALTH CHECK ====================
