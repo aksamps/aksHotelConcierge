@@ -287,6 +287,68 @@ app.post('/api/rooms', async (req, res) => {
     }
 });
 
+// Proxy auth endpoints to Python API
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/api/auth/register`, req.body);
+        res.status(201).json(response.data);
+    } catch (error) {
+        console.error('Error registering user:', error.message);
+        res.status(error.response?.status || 500).json({ 
+            error: error.response?.data?.error || 'Registration failed' 
+        });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/api/auth/login`, req.body);
+        res.status(200).json(response.data);
+    } catch (error) {
+        console.error('Error logging in:', error.message);
+        res.status(error.response?.status || 500).json({ 
+            error: error.response?.data?.error || 'Login failed' 
+        });
+    }
+});
+
+app.get('/api/auth/verify', async (req, res) => {
+    try {
+        const response = await axios.get(`${PYTHON_API}/api/auth/verify`, { params: req.query });
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error verifying session:', error.message);
+        res.status(error.response?.status || 500).json({ 
+            error: error.response?.data?.error || 'Verification failed' 
+        });
+    }
+});
+
+// Proxy user notification endpoints
+app.get('/api/user/notifications', async (req, res) => {
+    try {
+        const response = await axios.get(`${PYTHON_API}/api/user/notifications`, { params: req.query });
+        res.json(response.data);
+    } catch (error) {
+        console.error('Error fetching notifications:', error.message);
+        res.status(error.response?.status || 500).json({ 
+            error: error.response?.data?.error || 'Failed to fetch notifications' 
+        });
+    }
+});
+
+app.post('/api/user/notifications', async (req, res) => {
+    try {
+        const response = await axios.post(`${PYTHON_API}/api/user/notifications`, req.body);
+        res.status(201).json(response.data);
+    } catch (error) {
+        console.error('Error adding notification:', error.message);
+        res.status(error.response?.status || 500).json({ 
+            error: error.response?.data?.error || 'Failed to add notification' 
+        });
+    }
+});
+
 // Initialize database with sample data
 app.post('/api/init', async (req, res) => {
     try {
@@ -300,7 +362,12 @@ app.post('/api/init', async (req, res) => {
     }
 });
 
-// Serve frontend
+// Serve auth page
+app.get('/auth', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'auth.html'));
+});
+
+// Serve main app
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

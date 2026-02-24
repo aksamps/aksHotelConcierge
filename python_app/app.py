@@ -10,6 +10,8 @@ import MySQLdb.cursors
 import os
 from datetime import datetime
 import logging
+import hashlib
+import secrets
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -101,6 +103,30 @@ def init_db():
                 FOREIGN KEY (reservation_id) REFERENCES reservations(id)
             )
         ''')
+
+        # Create users table for authentication
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME
+            )
+        ''')
+
+        # Create user_notifications table for per-user notification history
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_notifications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                message TEXT NOT NULL,
+                notification_type VARCHAR(20),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_user_time (user_id, created_at DESC)
+            )
+        ''')
         
         mysql.connection.commit()
         logger.info("Database tables initialized successfully")
@@ -111,6 +137,230 @@ def init_db():
 def before_request():
     """Initialize database on first request"""
     init_db()
+
+# ==================== UTILITY FUNCTIONS ====================
+
+def hash_password(password):
+    """Hash password using SHA-256 with salt"""
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+    return salt + password_hash
+
+def verify_password(password, stored_hash):
+    """Verify password against stored hash"""
+    salt = stored_hash[:32]  # First 32 chars are the salt
+    password_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+    return password_hash == stored_hash[32:]
+
+# ==================== AUTHENTICATION ENDPOINTS ====================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """Register a new user"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        # Validate input
+        if not username or not password:
+            return jsonify({'error': 'Username and password are required'}), 400
+        
+        if len(username) < 3:
+            return jsonify({'error': 'Username must be at least 3 characters'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        
+        # Check if username already exists
+        cursor.execute('SELECT id FROM users WHERE username = %s', (username,))
+        if cursor.fetchone():
+            cursor.close()
+            return jsonify({'error': 'Username already exists'}), 409
+        
+        # Hash password and insert user
+        password_hash = hash_password(password)
+        cursor.execute(
+            'INSERT INTO users (username, password_hash) VALUES (%s, %s)',
+            (username, password_hash)
+        )
+        mysql.connection.commit()
+        user_id = cursor.lastrowid
+        cursor.close()
+        
+        logger.info(f"User registered: {username}")
+        return jsonify({
+            'success': True,
+            'message': 'Registration successful',
+            'user_id': user_id,
+            'username': username,
+            'timestamp': datetime.now().isoformat()
+        }), 201
+    except Exception as e:
+        logger.error(f"Error registering user: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Login user with username and password"""
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not username or not password:
+            return jsonify({'error': 'Username and password are required'}), 400
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('SELECT id, username, password_hash FROM users WHERE username = %s', (username,))
+        user = cursor.fetchone()
+        
+        if not user:
+            cursor.close()
+            return jsonify({'error': 'Invalid username or password'}), 401
+        
+        # Verify password
+        if not verify_password(password, user['password_hash']):
+            cursor.close()
+            return jsonify({'error': 'Invalid username or password'}), 401
+        
+        # Update last login
+        cursor.execute(
+            'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = %s',
+            (user['id'],)
+        )
+        mysql.connection.commit()
+        cursor.close()
+        
+        logger.info(f"User logged in: {username}")
+        return jsonify({
+            'success': True,
+            'message': 'Login successful',
+            'user_id': user['id'],
+            'username': user['username'],
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error logging in: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/verify', methods=['GET'])
+def verify_session():
+    """Verify if user session is valid (basic check)"""
+    try:
+        user_id = request.args.get('user_id')
+        username = request.args.get('username')
+        
+        if not user_id or not username:
+            return jsonify({'error': 'user_id and username required'}), 400
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('SELECT id, username FROM users WHERE id = %s AND username = %s', (user_id, username))
+        user = cursor.fetchone()
+        cursor.close()
+        
+        if not user:
+            return jsonify({'success': False, 'error': 'Invalid session'}), 401
+        
+        return jsonify({
+            'success': True,
+            'user_id': user['id'],
+            'username': user['username']
+        }), 200
+    except Exception as e:
+        logger.error(f"Error verifying session: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# ==================== USER NOTIFICATION ENDPOINTS ====================
+
+@app.route('/api/user/notifications', methods=['GET'])
+def get_user_notifications():
+    """Get last 20 notifications for a user"""
+    try:
+        user_id = request.args.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'user_id required'}), 400
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('''
+            SELECT id, message, notification_type, created_at 
+            FROM user_notifications 
+            WHERE user_id = %s 
+            ORDER BY created_at DESC 
+            LIMIT 20
+        ''', (user_id,))
+        notifications = cursor.fetchall()
+        cursor.close()
+        
+        logger.info(f"Retrieved {len(notifications)} notifications for user {user_id}")
+        return jsonify({
+            'success': True,
+            'notifications': notifications,
+            'count': len(notifications),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching notifications: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/notifications', methods=['POST'])
+def add_user_notification():
+    """Add a notification for a user"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        message = data.get('message')
+        notification_type = data.get('type', 'info')
+        
+        if not user_id or not message:
+            return jsonify({'error': 'user_id and message required'}), 400
+        
+        cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
+        
+        # Verify user exists
+        cursor.execute('SELECT id FROM users WHERE id = %s', (user_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Delete oldest notification if we already have 20
+        cursor.execute('''
+            SELECT COUNT(*) as count FROM user_notifications WHERE user_id = %s
+        ''', (user_id,))
+        result = cursor.fetchone()
+        if result['count'] >= 20:
+            cursor.execute('''
+                DELETE FROM user_notifications 
+                WHERE user_id = %s AND id NOT IN (
+                    SELECT id FROM user_notifications 
+                    WHERE user_id = %s 
+                    ORDER BY created_at DESC 
+                    LIMIT 19
+                )
+            ''', (user_id, user_id))
+        
+        # Insert new notification
+        cursor.execute('''
+            INSERT INTO user_notifications (user_id, message, notification_type)
+            VALUES (%s, %s, %s)
+        ''', (user_id, message, notification_type))
+        mysql.connection.commit()
+        notification_id = cursor.lastrowid
+        cursor.close()
+        
+        logger.info(f"Added notification for user {user_id}")
+        return jsonify({
+            'success': True,
+            'notification_id': notification_id,
+            'message': 'Notification added',
+            'timestamp': datetime.now().isoformat()
+        }), 201
+    except Exception as e:
+        logger.error(f"Error adding notification: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 # ==================== ROOM ENDPOINTS ====================
 

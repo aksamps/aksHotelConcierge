@@ -797,7 +797,119 @@
         let currentCheckInDate = null;
         let currentCheckOutDate = null;
         let notificationHistory = [];
+        let currentUser = null;
+        let userNotifications = [];
         const API_BASE = window.location.origin;
+
+        // Check authentication on page load
+        function checkAuth() {
+            const userId = localStorage.getItem('user_id');
+            const username = localStorage.getItem('username');
+            
+            if (!userId || !username) {
+                // Redirect to auth page
+                window.location.href = '/auth';
+                return false;
+            }
+
+            currentUser = { id: userId, username: username };
+            
+            // Update UI with username
+            const userDisplay = document.querySelector('header p');
+            if (userDisplay) {
+                userDisplay.textContent = `Logged in as: ${username} | Real-Time Room Status Monitor`;
+            }
+
+            // Add logout button
+            addLogoutButton();
+            
+            return true;
+        }
+
+        function addLogoutButton() {
+            const header = document.querySelector('header');
+            if (header && !document.getElementById('logoutBtn')) {
+                const logoutBtn = document.createElement('button');
+                logoutBtn.id = 'logoutBtn';
+                logoutBtn.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    left: 20px;
+                    background: linear-gradient(135deg, #ff6b6b 0%, #ff4757 100%);
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-weight: 600;
+                    z-index: 1600;
+                    transition: all 0.3s ease;
+                `;
+                logoutBtn.textContent = 'Logout';
+                logoutBtn.onclick = logout;
+                logoutBtn.onmouseover = function() {
+                    this.style.transform = 'translateY(-2px)';
+                    this.style.boxShadow = '0 4px 12px rgba(255, 107, 107, 0.4)';
+                };
+                logoutBtn.onmouseout = function() {
+                    this.style.transform = 'translateY(0)';
+                    this.style.boxShadow = 'none';
+                };
+                document.body.appendChild(logoutBtn);
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('username');
+            localStorage.removeItem('auth_token');
+            window.location.href = '/auth';
+        }
+
+        // Load per-user notifications on page load
+        async function loadUserNotifications() {
+            if (!currentUser) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/user/notifications?user_id=${currentUser.id}`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                if (data.notifications) {
+                    userNotifications = data.notifications;
+                    // Restore notifications to history
+                    userNotifications.reverse().forEach(notif => {
+                        notificationHistory.push({
+                            message: notif.message,
+                            type: notif.notification_type || 'info',
+                            time: new Date(notif.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                        });
+                    });
+                    updateNotificationPanel();
+                }
+            } catch (error) {
+                console.error('Error loading notifications:', error);
+            }
+        }
+
+        // Save notification to user account
+        async function saveNotificationToUser(message, type) {
+            if (!currentUser) return;
+
+            try {
+                await fetch(`${API_BASE}/api/user/notifications`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: currentUser.id,
+                        message: message,
+                        type: type
+                    })
+                });
+            } catch (error) {
+                console.error('Error saving notification:', error);
+            }
+        }
 
         // Initialize WebSocket connection
         function initWebSocket() {
@@ -1303,10 +1415,13 @@
             
             notificationHistory.unshift({ message, type, time: timeString });
             
-            // Keep only last 50 notifications
-            if (notificationHistory.length > 50) {
+            // Keep only last 20 in UI (but save all via API)
+            if (notificationHistory.length > 20) {
                 notificationHistory.pop();
             }
+            
+            // Save to user's account
+            saveNotificationToUser(message, type);
             
             // Update the notification display
             updateNotificationPanel();
@@ -1594,6 +1709,14 @@
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', async () => {
+            // Check authentication first
+            if (!checkAuth()) {
+                return;
+            }
+
+            // Load user's saved notifications
+            await loadUserNotifications();
+            
             // Set minimum dates
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('searchCheckIn').min = today;
