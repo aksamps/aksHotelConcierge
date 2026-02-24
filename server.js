@@ -124,19 +124,19 @@ app.post('/api/reservations', async (req, res) => {
         broadcastToClients({
             type: 'reservation_created',
             reservation: response.data,
+            room_id: req.body.room_id,
+            guest_name: req.body.guest_name,
             timestamp: new Date().toISOString()
         });
         
-        // If there's a room status update, broadcast that too
-        if (response.data.room_status_update) {
-            broadcastToClients({
-                type: 'room_status_update',
-                roomId: response.data.room_status_update.room_id,
-                status: response.data.room_status_update.new_status,
-                previousStatus: response.data.room_status_update.previous_status,
-                timestamp: new Date().toISOString()
-            });
-        }
+        // Broadcast room status change to reserved
+        broadcastToClients({
+            type: 'room_status_update',
+            roomId: req.body.room_id,
+            status: 'reserved',
+            previousStatus: 'vacant',
+            timestamp: new Date().toISOString()
+        });
         
         res.status(201).json(response.data);
     } catch (error) {
@@ -220,11 +220,21 @@ app.post('/api/rooms/:id/checkin', async (req, res) => {
             req.body
         );
         
-        // Broadcast check-in to all clients
+        // Broadcast check-in to all clients with room status update
         broadcastToClients({
             type: 'guest_checkin',
             room_id: req.params.id,
             guest_name: req.body.guest_name,
+            new_status: 'checkedin',
+            timestamp: new Date().toISOString()
+        });
+        
+        // Also send room status update
+        broadcastToClients({
+            type: 'room_status_update',
+            roomId: req.params.id,
+            status: 'checkedin',
+            previousStatus: 'reserved',
             timestamp: new Date().toISOString()
         });
         
@@ -242,10 +252,20 @@ app.post('/api/rooms/:id/checkout', async (req, res) => {
             `${PYTHON_API}/api/rooms/${req.params.id}/checkout`
         );
         
-        // Broadcast check-out to all clients
+        // Broadcast check-out to all clients with room status update
         broadcastToClients({
             type: 'guest_checkout',
             room_id: req.params.id,
+            new_status: 'vacant',
+            timestamp: new Date().toISOString()
+        });
+        
+        // Also send room status update
+        broadcastToClients({
+            type: 'room_status_update',
+            roomId: req.params.id,
+            status: 'vacant',
+            previousStatus: 'checkedin',
             timestamp: new Date().toISOString()
         });
         

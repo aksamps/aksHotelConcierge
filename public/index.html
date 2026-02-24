@@ -126,6 +126,11 @@
             color: white;
         }
 
+        .status-checkedin {
+            background: #ff6b6b;
+            color: white;
+        }
+
         .status-reserved {
             background: #ffa94d;
             color: white;
@@ -138,6 +143,11 @@
 
         .status-maintenance {
             background: #9c9c9c;
+            color: white;
+        }
+
+        .status-checkout {
+            background: #ff9800;
             color: white;
         }
 
@@ -278,6 +288,9 @@
             width: 90%;
             max-width: 400px;
             animation: slideIn 0.3s ease;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
         }
 
         @keyframes slideIn {
@@ -300,6 +313,27 @@
 
         .modal-body {
             margin-bottom: 20px;
+            overflow-y: auto;
+            max-height: calc(85vh - 300px);
+            padding-right: 8px;
+        }
+        
+        .modal-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .modal-body::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        
+        .modal-body::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+        
+        .modal-body::-webkit-scrollbar-thumb:hover {
+            background: #555;
         }
 
         .form-group {
@@ -451,6 +485,139 @@
             font-weight: 600 !important;
             font-size: 0.85em !important;
         }
+
+        .notification-history-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 350px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 1500;
+            max-height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .notification-history-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px 10px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .notification-history-header h3 {
+            margin: 0;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .notification-toggle-icon {
+            display: inline-block;
+            transition: transform 0.3s ease;
+        }
+
+        .notification-toggle-icon.collapsed {
+            transform: rotate(180deg);
+        }
+
+        .notification-count-badge {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .notification-history-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 0;
+            max-height: 320px;
+        }
+
+        .notification-history-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .notification-history-content::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .notification-history-content::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 3px;
+        }
+
+        .notification-history-content::-webkit-scrollbar-thumb:hover {
+            background: #999;
+        }
+
+        .notification-item {
+            padding: 10px 15px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .notification-item:last-child {
+            border-bottom: none;
+        }
+
+        .notification-item-icon {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            margin-top: 5px;
+        }
+
+        .notification-item-icon.success {
+            background: #51cf66;
+        }
+
+        .notification-item-icon.info {
+            background: #667eea;
+        }
+
+        .notification-item-icon.error {
+            background: #ff6b6b;
+        }
+
+        .notification-item-content {
+            flex: 1;
+        }
+
+        .notification-item-message {
+            color: #333;
+            margin-bottom: 3px;
+        }
+
+        .notification-item-time {
+            color: #999;
+            font-size: 0.85em;
+        }
+
+        .notification-history-empty {
+            padding: 20px;
+            text-align: center;
+            color: #999;
+            font-size: 0.9em;
+        }
+
+        .notification-history-panel.collapsed .notification-history-content {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -473,6 +640,10 @@
             <div class="summary-card">
                 <h3>Occupied</h3>
                 <div class="count" style="color: #ff6b6b;" id="occupiedCount">0</div>
+            </div>
+            <div class="summary-card">
+                <h3>Reserved</h3>
+                <div class="count" style="color: #ffa94d;" id="reservedCount">0</div>
             </div>
             <div class="summary-card">
                 <h3>Vacant</h3>
@@ -511,6 +682,20 @@
                 <div class="spinner"></div>
                 <p>Loading rooms...</p>
             </div>
+        </div>
+    </div>
+
+    <!-- Notification History Panel -->
+    <div id="notificationHistoryPanel" class="notification-history-panel">
+        <div class="notification-history-header" onclick="toggleNotificationHistory()">
+            <h3>
+                📬 Notifications
+                <span class="notification-count-badge" id="notificationCountBadge">0</span>
+            </h3>
+            <span class="notification-toggle-icon" id="notificationToggleIcon">▼</span>
+        </div>
+        <div class="notification-history-content" id="notificationContent">
+            <div class="notification-history-empty">No notifications yet</div>
         </div>
     </div>
 
@@ -581,6 +766,29 @@
         </div>
     </div>
 
+    <!-- Check-out Modal -->
+    <div id="checkoutModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('checkoutModal')">&times;</span>
+            <div class="modal-header">Check Out Guest</div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Room Number:</label>
+                    <input type="text" id="checkoutRoomNumber" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Guest Name:</label>
+                    <input type="text" id="checkoutGuestName" readonly>
+                </div>
+                <p style="color: #666; margin-top: 15px; font-style: italic;">Please confirm the guest is checking out.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('checkoutModal')">Cancel</button>
+                <button class="btn-primary" onclick="confirmCheckOut()">Confirm Check Out</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let ws = null;
         let currentRoomData = {};
@@ -588,6 +796,7 @@
         let currentRoomForReservation = null;
         let currentCheckInDate = null;
         let currentCheckOutDate = null;
+        let notificationHistory = [];
         const API_BASE = window.location.origin;
 
         // Initialize WebSocket connection
@@ -610,14 +819,34 @@
                     
                     if (data.type === 'room_status_update') {
                         handleRoomStatusUpdate(data);
+                    } else if (data.type === 'guest_checkin') {
+                        // Update room status and show notification
+                        if (currentRoomData[data.room_id]) {
+                            currentRoomData[data.room_id].status = data.new_status || 'checkedin';
+                            currentRoomData[data.room_id].guest_name = data.guest_name;
+                            currentRoomData[data.room_id].check_in_time = new Date().toISOString();
+                            renderRooms();
+                            updateStatusSummary();
+                            showNotification(`${data.guest_name} checked in to Room ${currentRoomData[data.room_id].room_number}`, 'success');
+                        }
+                    } else if (data.type === 'guest_checkout') {
+                        // Update room status and show notification
+                        if (currentRoomData[data.room_id]) {
+                            currentRoomData[data.room_id].status = data.new_status || 'vacant';
+                            currentRoomData[data.room_id].guest_name = null;
+                            currentRoomData[data.room_id].check_out_time = new Date().toISOString();
+                            renderRooms();
+                            updateStatusSummary();
+                            showNotification(`Room ${currentRoomData[data.room_id].room_number} is now vacant`, 'success');
+                        }
                     } else if (data.type === 'reservation_created') {
                         // Extract room_id from the reservation object
                         const reservationData = data.reservation || data;
                         const roomId = reservationData.room_id;
                         
                         // Update room status if available
-                        if (reservationData.room_status_update && currentRoomData[roomId]) {
-                            currentRoomData[roomId].status = reservationData.room_status_update.new_status;
+                        if (reservationData && currentRoomData[roomId]) {
+                            currentRoomData[roomId].status = 'reserved';
                             if (currentCheckInDate && currentCheckOutDate) {
                                 currentRoomData[roomId].availability = 'reserved';
                             }
@@ -627,7 +856,7 @@
                         
                         // Show the text notification
                         showNotification(
-                            `New reservation created for ${reservationData.guest_name} in Room ${roomId}`,
+                            `New reservation created for ${reservationData.guest_name} in Room ${data.room_id || roomId}`,
                             'success'
                         );
                     } else if (data.type === 'reservation_cancelled') {
@@ -727,7 +956,8 @@
             }
             
             let guestInfo = '';
-            if (room.guest_name) {
+            // Only show guest info if room is checked in
+            if (room.guest_name && room.status === 'checkedin') {
                 guestInfo = `<div class="room-details">
                     <div class="detail-label">Guest</div>
                     <div class="detail-value">${room.guest_name}</div>
@@ -735,7 +965,8 @@
             }
             
             let checkInTime = '';
-            if (room.check_in_time) {
+            // Only show check-in time if room is checked in
+            if (room.check_in_time && room.status === 'checkedin') {
                 const time = new Date(room.check_in_time).toLocaleString();
                 checkInTime = `<div class="room-details">
                     <div class="detail-label">Check-in</div>
@@ -743,7 +974,18 @@
                 </div>`;
             }
             
-            // Show appropriate buttons based on availability
+            // Show reservation dates if room is reserved
+            let reservationDates = '';
+            if (room.status === 'reserved' && room.check_in_date && room.check_out_date) {
+                const checkInDate = new Date(room.check_in_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const checkOutDate = new Date(room.check_out_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                reservationDates = `<div class="room-details">
+                    <div class="detail-label">Reservation</div>
+                    <div class="detail-value">${checkInDate} - ${checkOutDate}</div>
+                </div>`;
+            }
+            
+            // Show appropriate buttons based on room status
             let actionButtons = '';
             if (currentCheckInDate && currentCheckOutDate) {
                 // When searching with dates
@@ -757,11 +999,25 @@
                     `;
                 }
             } else {
-                // Default view
-                actionButtons = `
-                    <button class="btn-checkin" onclick="openReservationModal(${room.id}, '${room.room_number}')">Reserve</button>
-                    <button class="btn-checkout" onclick="checkOutRoom(${room.id})">Check Out</button>
-                `;
+                // Default view - show actions based on current status
+                if (room.status === 'vacant') {
+                    actionButtons = `
+                        <button class="btn-checkin" onclick="openReservationModal(${room.id}, '${room.room_number}')">Reserve</button>
+                    `;
+                } else if (room.status === 'reserved') {
+                    actionButtons = `
+                        <button class="btn-checkin" onclick="openCheckinModal(${room.id}, '${room.room_number}')">Check In</button>
+                        <button class="btn-checkout" onclick="cancelReservation(${room.id})">Cancel</button>
+                    `;
+                } else if (room.status === 'checkedin') {
+                    actionButtons = `
+                        <button class="btn-checkout" onclick="openCheckoutModal(${room.id}, '${room.room_number}')">Check Out</button>
+                    `;
+                } else {
+                    actionButtons = `
+                        <button class="btn-checkin" onclick="openReservationModal(${room.id}, '${room.room_number}')">Reserve</button>
+                    `;
+                }
             }
             
             return `
@@ -780,6 +1036,7 @@
                             <div class="detail-label">Capacity</div>
                             <div class="detail-value">2 Guests</div>
                         </div>
+                        ${reservationDates}
                         ${guestInfo}
                         ${checkInTime}
                         <div class="room-actions">
@@ -794,15 +1051,16 @@
         function updateStatusSummary() {
             const rooms = Object.values(currentRoomData);
             const total = rooms.length;
-            // Count occupied includes both 'occupied' and 'reserved' statuses
-            const occupied = rooms.filter(r => r.status === 'occupied' || r.status === 'reserved').length;
+            const checkedin = rooms.filter(r => r.status === 'checkedin').length;
+            const reserved = rooms.filter(r => r.status === 'reserved').length;
             const vacant = rooms.filter(r => r.status === 'vacant').length;
-            const maintenance = rooms.filter(r => r.status === 'maintenance').length;
+            const checkout = rooms.filter(r => r.status === 'checkout').length;
             
             document.getElementById('totalRooms').textContent = total;
-            document.getElementById('occupiedCount').textContent = occupied;
+            document.getElementById('occupiedCount').textContent = checkedin + checkout;
+            document.getElementById('reservedCount').textContent = reserved;
             document.getElementById('vacantCount').textContent = vacant;
-            document.getElementById('maintenanceCount').textContent = maintenance;
+            document.getElementById('maintenanceCount').textContent = 0;
         }
 
         // Handle room status update from WebSocket
@@ -855,6 +1113,17 @@
             document.getElementById('guestName').focus();
         }
 
+        // Open check-out modal
+        function openCheckoutModal(roomId, roomNumber) {
+            const room = currentRoomData[roomId];
+            document.getElementById('checkoutRoomNumber').value = roomNumber;
+            document.getElementById('checkoutGuestName').value = room.guest_name || 'Unknown Guest';
+            document.getElementById('checkoutModal').style.display = 'block';
+            
+            // Store the room ID for confirmation
+            window.currentRoomIdForCheckout = roomId;
+        }
+
         // Close modal
         function closeModal(modalId) {
             document.getElementById(modalId).style.display = 'none';
@@ -882,17 +1151,75 @@
                 if (!response.ok) throw new Error('Check-in failed');
                 
                 const result = await response.json();
-                currentRoomData[currentRoomForCheckin].status = 'occupied';
+                currentRoomData[currentRoomForCheckin].status = 'checkedin';
                 currentRoomData[currentRoomForCheckin].guest_name = guestName;
                 currentRoomData[currentRoomForCheckin].check_in_time = new Date().toISOString();
                 
                 renderRooms();
                 updateStatusSummary();
                 closeModal('checkinModal');
-                showNotification(`${guestName} checked in to room`, 'success');
+                showNotification(`${guestName} checked in to room ${currentRoomData[currentRoomForCheckin].room_number}`, 'success');
             } catch (error) {
                 console.error('Check-in error:', error);
                 showNotification('Failed to check in guest', 'error');
+            }
+        }
+
+        // Check in a guest from a reservation
+        async function checkInFromReservation() {
+            const guestName = currentRoomData[currentRoomForCheckin]?.guest_name || 'Unknown';
+            
+            try {
+                const response = await fetch(
+                    `${API_BASE}/api/rooms/${currentRoomForCheckin}/checkin`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ guest_name: guestName })
+                    }
+                );
+                
+                if (!response.ok) throw new Error('Check-in failed');
+                
+                currentRoomData[currentRoomForCheckin].status = 'checkedin';
+                currentRoomData[currentRoomForCheckin].check_in_time = new Date().toISOString();
+                
+                renderRooms();
+                updateStatusSummary();
+                closeModal('checkinModal');
+                showNotification(`${guestName} checked in successfully`, 'success');
+            } catch (error) {
+                console.error('Check-in error:', error);
+                showNotification('Failed to check in guest', 'error');
+            }
+        }
+
+        // Confirm check-out
+        async function confirmCheckOut() {
+            const roomId = window.currentRoomIdForCheckout;
+            if (!roomId) return;
+            
+            try {
+                const response = await fetch(
+                    `${API_BASE}/api/rooms/${roomId}/checkout`,
+                    { method: 'POST' }
+                );
+                
+                if (!response.ok) throw new Error('Check-out failed');
+                
+                const result = await response.json();
+                currentRoomData[roomId].status = 'vacant';
+                currentRoomData[roomId].guest_name = null;
+                currentRoomData[roomId].check_in_time = null;
+                currentRoomData[roomId].check_out_time = new Date().toISOString();
+                
+                renderRooms();
+                updateStatusSummary();
+                closeModal('checkoutModal');
+                showNotification('Guest checked out successfully', 'success');
+            } catch (error) {
+                console.error('Check-out error:', error);
+                showNotification('Failed to check out guest', 'error');
             }
         }
 
@@ -921,8 +1248,44 @@
             }
         }
 
+        // Cancel a reservation
+        async function cancelReservation(roomId) {
+            if (!confirm('Are you sure you want to cancel this reservation?')) return;
+            
+            try {
+                // First, get the room's current reservation ID
+                const reservations = await fetch(`${API_BASE}/api/reservations`);
+                const reservationData = await reservations.json();
+                
+                const reservation = reservationData.reservations?.find(r => r.room_id === roomId && r.status === 'confirmed');
+                if (!reservation) {
+                    showNotification('Reservation not found', 'error');
+                    return;
+                }
+                
+                const response = await fetch(
+                    `${API_BASE}/api/reservations/${reservation.id}/cancel`,
+                    { method: 'POST' }
+                );
+                
+                if (!response.ok) throw new Error('Cancellation failed');
+                
+                currentRoomData[roomId].status = 'vacant';
+                renderRooms();
+                updateStatusSummary();
+                showNotification('Reservation cancelled successfully', 'success');
+            } catch (error) {
+                console.error('Cancellation error:', error);
+                showNotification('Failed to cancel reservation', 'error');
+            }
+        }
+
         // Show notification
         function showNotification(message, type = 'info') {
+            // Add to notification history
+            addToNotificationHistory(message, type);
+            
+            // Show floating notification
             const notification = document.createElement('div');
             notification.className = `notification notification-${type}`;
             notification.textContent = message;
@@ -931,6 +1294,61 @@
             setTimeout(() => {
                 notification.remove();
             }, 3000);
+        }
+
+        // Add notification to history panel
+        function addToNotificationHistory(message, type) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            notificationHistory.unshift({ message, type, time: timeString });
+            
+            // Keep only last 50 notifications
+            if (notificationHistory.length > 50) {
+                notificationHistory.pop();
+            }
+            
+            // Update the notification display
+            updateNotificationPanel();
+        }
+
+        // Update notification panel display
+        function updateNotificationPanel() {
+            const content = document.getElementById('notificationContent');
+            const badge = document.getElementById('notificationCountBadge');
+            
+            // Update badge count
+            badge.textContent = notificationHistory.length;
+            
+            if (notificationHistory.length === 0) {
+                content.innerHTML = '<div class="notification-history-empty">No notifications yet</div>';
+                return;
+            }
+            
+            // Build notification list HTML
+            let html = notificationHistory.map(notif => `
+                <div class="notification-item">
+                    <div class="notification-item-icon ${notif.type}"></div>
+                    <div class="notification-item-content">
+                        <div class="notification-item-message">${notif.message}</div>
+                        <div class="notification-item-time">${notif.time}</div>
+                    </div>
+                </div>
+            `).join('');
+            
+            content.innerHTML = html;
+            
+            // Auto-scroll to bottom
+            content.scrollTop = content.scrollHeight;
+        }
+
+        // Toggle notification history panel
+        function toggleNotificationHistory() {
+            const panel = document.getElementById('notificationHistoryPanel');
+            const icon = document.getElementById('notificationToggleIcon');
+            
+            panel.classList.toggle('collapsed');
+            icon.classList.toggle('collapsed');
         }
 
         // Close modal when clicking outside

@@ -39,7 +39,7 @@ def init_db():
                 id INT PRIMARY KEY,
                 room_number VARCHAR(10) UNIQUE NOT NULL,
                 floor INT NOT NULL,
-                status ENUM('occupied', 'vacant', 'maintenance', 'reserved') DEFAULT 'vacant',
+                status ENUM('vacant', 'reserved', 'checkedin', 'checkout') DEFAULT 'vacant',
                 check_in_time DATETIME,
                 check_out_time DATETIME,
                 guest_name VARCHAR(100),
@@ -48,11 +48,11 @@ def init_db():
             )
         ''')
         
-        # Try to alter table if it exists to add 'reserved' status
+        # Try to alter table if it exists to add new statuses
         try:
             cursor.execute('''
                 ALTER TABLE rooms 
-                MODIFY COLUMN status ENUM('occupied', 'vacant', 'maintenance', 'reserved') DEFAULT 'vacant'
+                MODIFY COLUMN status ENUM('vacant', 'reserved', 'checkedin', 'checkout') DEFAULT 'vacant'
             ''')
         except:
             pass  # Table might already have the correct schema
@@ -116,10 +116,22 @@ def before_request():
 
 @app.route('/api/rooms', methods=['GET'])
 def get_rooms():
-    """Get all rooms with their current status"""
+    """Get all rooms with their current status and reservation dates"""
     try:
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute('SELECT * FROM rooms ORDER BY room_number')
+        
+        # Get all rooms with their reservation information
+        cursor.execute('''
+            SELECT 
+                r.*,
+                res.check_in_date,
+                res.check_out_date,
+                res.guest_name as reserved_guest
+            FROM rooms r
+            LEFT JOIN reservations res ON r.id = res.room_id 
+                AND res.status = 'confirmed'
+            ORDER BY r.room_number
+        ''')
         rooms = cursor.fetchall()
         cursor.close()
         
@@ -136,10 +148,20 @@ def get_rooms():
 
 @app.route('/api/rooms/<int:room_id>', methods=['GET'])
 def get_room(room_id):
-    """Get a specific room by ID"""
+    """Get a specific room by ID with reservation details"""
     try:
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute('SELECT * FROM rooms WHERE id = %s', (room_id,))
+        cursor.execute('''
+            SELECT 
+                r.*,
+                res.check_in_date,
+                res.check_out_date,
+                res.guest_name as reserved_guest
+            FROM rooms r
+            LEFT JOIN reservations res ON r.id = res.room_id 
+                AND res.status = 'confirmed'
+            WHERE r.id = %s
+        ''', (room_id,))
         room = cursor.fetchone()
         cursor.close()
         
@@ -194,13 +216,13 @@ def create_room():
 
 @app.route('/api/rooms/<int:room_id>/status', methods=['PUT'])
 def update_room_status(room_id):
-    """Update room status (occupied/vacant/maintenance)"""
+    """Update room status (vacant/reserved/checkedin/checkout)"""
     try:
         data = request.get_json()
         new_status = data.get('status')
         
-        if new_status not in ['occupied', 'vacant', 'maintenance']:
-            return jsonify({'error': 'Invalid status'}), 400
+        if new_status not in ['vacant', 'reserved', 'checkedin', 'checkout']:
+            return jsonify({'error': 'Invalid status. Must be: vacant, reserved, checkedin, or checkout'}), 400
         
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         
@@ -250,7 +272,7 @@ def check_in_room(room_id):
         cursor = mysql.connection.cursor(MySQLdb.cursors.DictCursor)
         cursor.execute('''
             UPDATE rooms 
-            SET status = 'occupied', 
+            SET status = 'checkedin', 
                 guest_name = %s, 
                 check_in_time = CURRENT_TIMESTAMP,
                 updated_at = CURRENT_TIMESTAMP
@@ -260,7 +282,7 @@ def check_in_room(room_id):
         # Log the status change
         cursor.execute('''
             INSERT INTO room_status_logs (room_id, previous_status, new_status, changed_by)
-            VALUES (%s, 'vacant', 'occupied', %s)
+            VALUES (%s, 'vacant', 'checkedin', %s)
         ''', (room_id, guest_name))
         
         mysql.connection.commit()
@@ -303,7 +325,7 @@ def check_out_room(room_id):
         # Log the status change
         cursor.execute('''
             INSERT INTO room_status_logs (room_id, previous_status, new_status, changed_by)
-            VALUES (%s, 'occupied', 'vacant', %s)
+            VALUES (%s, 'checkedin', 'vacant', %s)
         ''', (room_id, guest_name))
         
         mysql.connection.commit()
